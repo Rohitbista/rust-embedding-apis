@@ -16,6 +16,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 utoipa = "5"
 utoipa-swagger-ui = { version = "9", features = ["axum", "vendored"] }
 dotenvy = "0.15"
+shuttle-runtime = "0.57.0"
+shuttle-axum = "0.57.0"
 
 [profile.release]
 opt-level = 3
