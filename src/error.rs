@@ -12,6 +12,13 @@ pub enum AppError {
     Internal(String),
 }
 
+use utoipa::ToSchema;
+
+#[derive(serde::Serialize, ToSchema)]
+pub struct ErrorBody {
+    pub error: String,
+}
+
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, msg) = match self {

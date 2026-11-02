@@ -1,23 +1,28 @@
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use utoipa::ToSchema;
 
 use crate::{
     embedder::{BGE_QUERY_PREFIX, DIMENSIONS, MODEL_NAME},
-    error::AppError,
+    error::{AppError, ErrorBody},
     AppState,
 };
 
+#[utoipa::path(
+    get, path = "/health", tag = "system",
+    responses((status = 200, description = "Server and model info"))
+)]
 pub async fn health() -> Json<Value> {
     Json(json!({ "status": "ok", "model": MODEL_NAME, "dimensions": DIMENSIONS }))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct EmbedRequest {
     pub texts: Vec<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct EmbedResponse {
     pub model: &'static str,
     pub dimensions: usize,
@@ -25,6 +30,16 @@ pub struct EmbedResponse {
 }
 
 /// POST /embed: documents / notes (no prefix)
+#[utoipa::path(
+    post, path = "/embed", tag = "embeddings",
+    request_body = EmbedRequest,
+    security(("api_key" = [])),
+    responses(
+        (status = 200, description = "Embeddings", body = EmbedResponse),
+        (status = 400, description = "Bad request", body = ErrorBody),
+        (status = 401, description = "Missing/invalid API key", body = ErrorBody),
+    )
+)]
 pub async fn embed_documents(
     State(state): State<AppState>,
     Json(req): Json<EmbedRequest>,
@@ -43,12 +58,12 @@ pub async fn embed_documents(
     Ok(Json(EmbedResponse { model: MODEL_NAME, dimensions: DIMENSIONS, embeddings }))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct QueryRequest {
     pub text: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct QueryResponse {
     pub model: &'static str,
     pub dimensions: usize,
@@ -56,6 +71,16 @@ pub struct QueryResponse {
 }
 
 /// POST /embed/query: search queries (BGE query prefix added server-side)
+#[utoipa::path(
+    post, path = "/embed/query", tag = "embeddings",
+    request_body = QueryRequest,
+    security(("api_key" = [])),
+    responses(
+        (status = 200, description = "Query embedding", body = QueryResponse),
+        (status = 400, description = "Bad request", body = ErrorBody),
+        (status = 401, description = "Missing/invalid API key", body = ErrorBody),
+    )
+)]
 pub async fn embed_query(
     State(state): State<AppState>,
     Json(req): Json<QueryRequest>,
