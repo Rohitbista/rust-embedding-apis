@@ -1,43 +1,10 @@
-mod auth;
-mod config;
-mod embedder;
-mod error;
-mod routes;
-
-use std::sync::Arc;
-
-use axum::{
-    extract::DefaultBodyLimit,
-    middleware,
-    routing::{get, post},
-    Router,
-};
-use tower_http::trace::TraceLayer;
-use tracing_subscriber::EnvFilter;
-
-use crate::{config::Config, embedder::Embedder};
-
-use utoipa::{
-    openapi::security::{ApiKey, ApiKeyValue, SecurityScheme},
-    Modify, OpenApi,
-};
-use utoipa_swagger_ui::SwaggerUi;
-
-#[derive(Clone)]
-pub struct AppState {
-    pub embedder: Embedder,
-    pub config: Arc<Config>,
-}
+use shuttle_runtime::{CustomError, SecretStore};
 
 #[shuttle_runtime::main]
-async fn main() -> anyhow::Result<()> {
-    dotenvy::dotenv().ok();
-
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
-        .init();
-
-    let config = Arc::new(Config::from_env());
+async fn main(
+    #[shuttle_runtime::Secrets] secrets: SecretStore,
+) -> shuttle_axum::ShuttleAxum {
+    let config = Arc::new(Config::from_secrets(&secrets));
     if config.api_key.is_none() {
         tracing::warn!("API_KEY not set: endpoints are UNPROTECTED");
     }
@@ -45,7 +12,10 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("loading model (first run downloads it)...");
     let embedder = {
         let dir = config.cache_dir.clone();
-        tokio::task::spawn_blocking(move || Embedder::new(&dir)).await??
+        tokio::task::spawn_blocking(move || Embedder::new(&dir))
+            .await
+            .map_err(CustomError::new)?
+            .map_err(CustomError::new)?
     };
     tracing::info!("model ready");
 
@@ -64,32 +34,5 @@ async fn main() -> anyhow::Result<()> {
         .with_state(state)
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()));
 
-    let listener = tokio::net::TcpListener::bind(("0.0.0.0", config.port)).await?;
-    tracing::info!("listening on {}", listener.local_addr()?);
-    axum::serve(listener, app).await?;
-    Ok(())
-}
-
-#[derive(OpenApi)]
-#[openapi(
-    paths(routes::health, routes::embed_documents, routes::embed_query),
-    components(schemas(
-        routes::EmbedRequest, routes::EmbedResponse,
-        routes::QueryRequest, routes::QueryResponse,
-        error::ErrorBody
-    )),
-    modifiers(&SecurityAddon)
-)]
-struct ApiDoc;
-
-// Adds the "Authorize" button for the x-api-key header
-struct SecurityAddon;
-impl Modify for SecurityAddon {
-    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
-        let components = openapi.components.get_or_insert_with(Default::default);
-        components.add_security_scheme(
-            "api_key",
-            SecurityScheme::ApiKey(ApiKey::Header(ApiKeyValue::new("x-api-key"))),
-        );
-    }
+    Ok(app.into())
 }
